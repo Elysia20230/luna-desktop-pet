@@ -16,10 +16,16 @@
 - `assets/expressions.json`、`assets/wardrobe.json` 里的**表情编号与服装分组**，来自对
   立绘文件名的整理（`lun_<尺寸>_<服装>_<动作>_<表情>.png`），本身不含图像。
 
-## 二、立绘 / CG / 语音（本仓库不提供）
+## 二、立绘 / CG / 语音（不进 git 仓库）
 
-- 程序运行时读取 `Sprite/` 目录下的立绘（默认在项目上一级），**这些 PNG 需要你自己准备**。
-  本仓库与 Release 包都不附带，`.gitignore` 已把它们排除。
+- 程序运行时读取 `Sprite/` 目录下的立绘（`LunaPet.exe` 同级、或上一级、或在设置里指定）。
+  **这些 PNG 不在本仓库里**，`.gitignore` 已排除。
+- **可选素材包**：为了让人下载完就能看见露娜，项目在 Release 里额外挂了一个
+  `luna-sprites-v*.zip`（顶层是 `Sprite/` + 素材说明）。它：
+  - 不是 git 仓库的一部分，也不在程序包（`luna-desktop-pet-v*-win64.zip`）里；
+  - 与代码的 MIT 许可**无关**，版权归 Navel 及相关权利人；
+  - 仅限个人学习研究使用，禁止商用与二次分发；
+  - **权利人一句话即可撤下**（项目会删除该 Release 资产，仓库不受影响）。
 - `assets/voice/taihen_ni_kibun_ga_ii.wav`（"心情大好～"彩蛋）是从游戏语音里截的片段，
   同样**不入库**，需要的话自己放进去（见 `docs/修改指南.md` §9.3）。
 - `docs/preview_*.png` 是立绘的裁切演示图，也不入库。

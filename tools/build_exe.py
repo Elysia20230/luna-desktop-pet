@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 APP_DIR = DIST / "LunaPet"
 EXE = APP_DIR / "LunaPet.exe"
-VERSION = "1.0.0"
+VERSION = "1.0.1"       # 发布新版本时改这里（或用 --version 覆盖）
 ZIP_NAME = f"luna-desktop-pet-v{VERSION}-win64.zip"
 
 
@@ -63,21 +63,42 @@ def _make_zip() -> Path:
     return zip_path
 
 
-def _write_sha256(zip_path: Path) -> None:
-    digest = hashlib.sha256()
-    with zip_path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            digest.update(chunk)
-    line = f"{digest.hexdigest()}  {zip_path.name}\n"
+def _write_sha256(*files: Path) -> None:
+    """
+    把校验和写进 dist/SHA256SUMS.txt（累加，不覆盖）。
+
+    程序包和素材包分别构建，所以这里按文件名去重后再写：
+    同一份文件重跑一次，只会刷新它自己那一行。
+    """
     out = DIST / "SHA256SUMS.txt"
-    out.write_text(line, encoding="utf-8")
-    print(f"     校验和：{line.strip()}")
+    lines: dict[str, str] = {}
+    if out.is_file():
+        for raw in out.read_text(encoding="utf-8").splitlines():
+            parts = raw.split()
+            if len(parts) == 2:
+                lines[parts[1]] = parts[0]
+    for path in files:
+        if not path.is_file():
+            continue
+        digest = hashlib.sha256()
+        with path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                digest.update(chunk)
+        print(f"     校验和：{digest.hexdigest()}  {path.name}")
+        lines[path.name] = digest.hexdigest()
+    body = "".join(f"{sum_}  {name}\n" for name, sum_ in sorted(lines.items()))
+    out.write_text(body, encoding="utf-8")
+    print(f"     已写入 {out.name}（共 {len(lines)} 个文件）")
 
 
 def main() -> int:
+    global VERSION, ZIP_NAME
     parser = argparse.ArgumentParser(description="打包 LunaPet 为 Windows 可执行版")
     parser.add_argument("--zip-only", action="store_true", help="跳过 PyInstaller，只重新压缩")
+    parser.add_argument("--version", default=VERSION, help="版本号（默认取文件里的 VERSION）")
     args = parser.parse_args()
+    VERSION = args.version.strip() or VERSION
+    ZIP_NAME = f"luna-desktop-pet-v{VERSION}-win64.zip"
 
     DIST.mkdir(exist_ok=True)
     if not args.zip_only:

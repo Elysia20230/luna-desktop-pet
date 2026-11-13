@@ -274,7 +274,13 @@ class Config:
 
     # ---- 素材目录 ---------------------------------------------------------
     def sprite_dir(self) -> Path:
-        """立绘目录：配置优先；留空时尝试 ../Sprite；都没有返回 None。"""
+        """
+        立绘目录：按「用户配置 → exe 同级 → 上一级 → 打包内部」的顺序找。
+
+        打包成 exe 后最省事的分发方式是：把素材包解压到 LunaPet.exe 旁边，
+        形成 LunaPet\\LunaPet.exe + LunaPet\\Sprite\\*.png 的布局，这里第 2 条候选
+        就会命中，用户不需要进设置里选目录。
+        """
         configured = self.get("sprite.dir") or ""
         if configured:
             p = Path(configured)
@@ -282,8 +288,27 @@ class Config:
                 p = ROOT / p
             if p.is_dir():
                 return p
-        fallback = ROOT.parent / "Sprite"
-        return fallback if fallback.is_dir() else None
+
+        for base in (ROOT, ROOT.parent, paths.BUNDLE):
+            cand = base / "Sprite"
+            if not cand.is_dir():
+                continue
+            if _has_sprite(cand):
+                return cand
+            # 用户偶尔会解压成 Sprite\\Sprite\\*.png，只兼容这一层，不做递归
+            nested = cand / "Sprite"
+            if nested.is_dir() and _has_sprite(nested):
+                return nested
+            return cand      # 目录在但没图，也返回：上层会给出"没找到立绘"的提示
+        return None
+
+
+def _has_sprite(folder: Path) -> bool:
+    """目录里是否真的有 lun_*.png（避免把空文件夹当成素材目录）。"""
+    try:
+        return any(folder.glob("lun_*.png")) or any(folder.glob("LUN_*.png"))
+    except OSError:
+        return False
 
 
 def ensure_dirs() -> None:

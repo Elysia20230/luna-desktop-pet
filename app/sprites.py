@@ -68,9 +68,13 @@ class SpriteLibrary:
 
         # 素材目录：配置里指定的优先，其次是扫描时记下的路径
         cfg_dir = self.config.sprite_dir()
-        self.sprite_dir = cfg_dir or Path(self.catalog.get("source_dir", "")) or None
-        if self.sprite_dir and not Path(self.sprite_dir).is_dir():
-            self.warnings.append(f"立绘目录不存在：{self.sprite_dir}")
+        recorded = str(self.catalog.get("source_dir") or "").strip()
+        self.sprite_dir = cfg_dir or (Path(recorded) if recorded else None)
+        if self.sprite_dir is None or not Path(self.sprite_dir).is_dir():
+            self.warnings.append(
+                "没找到立绘：把素材包解压到 LunaPet\\Sprite（和 LunaPet.exe 同一个文件夹），"
+                "或在 设置 → 立绘 → 选目录。"
+            )
 
     @staticmethod
     def _read_json(path: Path, fallback):
