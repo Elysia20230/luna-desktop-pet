@@ -1,0 +1,129 @@
+{
+  "api": {
+    "provider": "deepseek",
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-chat",
+    "api_key": "",
+    "keys": {},
+    "temperature": 1.1,
+    "max_chars": 60,
+    "timeout_connect": 20,
+    "timeout_total": 120
+  },
+  "vision": {
+    "enabled": false,
+    "base_url": "",
+    "model": "",
+    "api_key": ""
+  },
+  "persona": {
+    "include_relations": true,
+    "extra_note": "",
+    "user_role": "asahi",
+    "roles_file": ""
+  },
+  "memory": {
+    "embedding": {
+      "provider": "siliconflow",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "model": "BAAI/bge-m3",
+      "api_key": "",
+      "batch": 16,
+      "query_timeout": 8
+    },
+    "vector_db": {
+      "backend": "auto",
+      "path": "data/chroma"
+    },
+    "top_k": 6,
+    "auto_extract_every": 8,
+    "max_facts": 2000,
+    "allow_upload": true
+  },
+  "sprite": {
+    "dir": "",
+    "family": "s",
+    "group": "0_0",
+    "auto_pose": true,
+    "scale": 1.0,
+    "always_on_top": true
+  },
+  "screen": {
+    "auto": false,
+    "interval_min": 10
+  },
+  "window": {
+    "pet_pos": null,
+    "chat_pos": null,
+    "chat_size": [
+      420,
+      620
+    ]
+  },
+  "behavior": {
+    "blink": true,
+    "breathe": true,
+    "idle_lines_min": 8,
+    "idle_use_screen": false,
+    "idle_min_gap_min": 3,
+    "bubble_seconds": 9,
+    "restore_after_reply": true,
+    "emotion_hold_seconds": 8,
+    "time_aware": true,
+    "debug_save": false,
+    "outfit_auto": true,
+    "outfit_night_outfit": "5",
+    "outfit_night_from": 22,
+    "outfit_night_to": 6,
+    "outfit_min_gap_min": 30,
+    "outfit_manual_hold_min": 120,
+    "outfit_random_in_season": true,
+    "outfit_season": "",
+    "quick_replies": true,
+    "reply_chips": [
+      "嗯？",
+      "我在呢",
+      "怎么了？"
+    ],
+    "chips_seconds": 12
+  },
+  "wardrobe": {},
+  "voice": {
+    "enabled": false,
+    "autostart": true,
+    "root": "",
+    "python": "",
+    "port": 9888,
+    "gpt_weights": "GPT_weights_v2Pro/[GPT_weights_v2Pro]sakurakouji_luna-e15.ckpt",
+    "sovits_weights": "SoVITS_weights_v2Pro/[SoVITS_weights_v2Pro]sakurakouji_luna_e8_s992.pth",
+    "voice_map_file": "",
+    "default_voice": "normal1",
+    "volume": 1.0,
+    "max_chars": 30,
+    "first_chars": 12,
+    "segment_chars": 20,
+    "speak_scope": "pipeline",
+    "start_timeout": 45,
+    "timeout_seconds": 30,
+    "probe_timeout": 0.4,
+    "keep_alive": true,
+    "speak_proactive": true,
+    "translate_model": "",
+    "signature_file": "",
+    "signature_text": "",
+    "call_enabled": false,
+    "call_device": "",
+    "call_silence_rms": 0.008,
+    "call_silence_ms": 900,
+    "call_min_utterance_ms": 400,
+    "call_max_utterance_s": 30,
+    "speech_wait_timeout": 20,
+    "asr_backend": "local",
+    "asr_local_model": "base",
+    "asr_local_dir": "",
+    "asr_base_url": "https://api.siliconflow.cn/v1",
+    "asr_model": "FunAudioLLM/SenseVoiceSmall",
+    "asr_key": "",
+    "asr_timeout": 30
+  }
+}

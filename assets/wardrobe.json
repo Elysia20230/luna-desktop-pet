@@ -1,0 +1,18 @@
+{
+  "_说明": "服装知识库：想改「哪套算睡衣」「哪套冬天穿」「哪套不参与随机」，改这个文件即可，改完重启生效。key 是造型编号（就是素材里 lun_<族>_<a>_<b>_<表情>.png 的 a）。",
+  "_字段": {
+    "name": "给人看的中文名（会显示在设置面板的下拉里）",
+    "seasons": "能穿的季节，可选 spring/summer/autumn/winter",
+    "occasion": "day=日常 / sleep=睡衣家居 / formal=礼服",
+    "random": "false 表示不参与「当季随机挑」（睡衣和礼服默认不参与）"
+  },
+  "outfits": {
+    "0": {"name": "学院装·夏", "seasons": ["spring", "summer"], "occasion": "day", "random": true},
+    "1": {"name": "学院装·蓝", "seasons": ["spring", "summer"], "occasion": "day", "random": true},
+    "2": {"name": "学院装·秋冬", "seasons": ["autumn", "winter"], "occasion": "day", "random": true},
+    "3": {"name": "洋装·浅蓝", "seasons": ["autumn", "winter"], "occasion": "day", "random": true},
+    "4": {"name": "黑大衣", "seasons": ["winter"], "occasion": "day", "random": true},
+    "5": {"name": "家居服", "seasons": ["spring", "summer", "autumn", "winter"], "occasion": "sleep", "random": false},
+    "6": {"name": "白色礼服", "seasons": ["summer"], "occasion": "formal", "random": false}
+  }
+}

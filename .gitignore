@@ -1,0 +1,38 @@
+# 注意：.gitignore 里 # 只有出现在行首才是注释，
+# 写成 `data/  # 说明` 会让整行变成非法规则，所以说明一律单独一行。
+
+# ============ 本人的隐私与本地数据（绝不入库）============
+# 里面有你自己填的 API Key
+config/config.json
+# 配置损坏时自动留的备份
+config/*.bak
+config/*.bak*
+# 聊天记录、记忆、向量库、识别模型、语音缓存
+data/
+# 运行日志、启动错误、语音服务日志
+logs/
+.env
+
+# ============ 游戏素材（版权归 Navel 等权利人，不随仓库分发）============
+Sprite/
+assets/sheets/
+assets/sheets_f/
+assets/voice/*.wav
+assets/voice/*.ogg
+# 演示图是从立绘裁的，跟着素材一起留在本地
+docs/preview_*.png
+
+# ============ 与本人环境强相关的临时脚本 ============
+tools/restore_from_session.mjs
+
+# ============ 打包与缓存 ============
+dist/
+build/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+*.log
+*.zip

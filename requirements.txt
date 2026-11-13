@@ -1,0 +1,15 @@
+# 运行必需
+PySide6-Essentials>=6.6        # 界面与透明窗口
+httpx>=0.27                    # 访问 DeepSeek / 硅基流动
+Pillow>=10                     # 素材扫描工具用
+
+# 记忆向量库（装不上会自动退到内置 SQLite 索引，不影响使用）
+chromadb>=0.5
+
+# 实时语音通话：录音 + 本地免费识别
+# sounddevice 自带 PortAudio；faster-whisper 首次运行会从 hf-mirror 下模型（约 145 MB）
+sounddevice>=0.5
+faster-whisper>=1.1
+
+# 开发/测试
+pytest>=8
