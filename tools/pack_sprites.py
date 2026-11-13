@@ -67,10 +67,19 @@ README_TEXT = """\
 
 
 def _collect(sprite_dir: Path) -> list[Path]:
-    """只收 lun_*.png（以及少数大写 LUN_*.png），跳过其他杂项。"""
-    files = [p for p in sprite_dir.glob("lun_*.png") if p.is_file()]
-    files += [p for p in sprite_dir.glob("LUN_*.png") if p.is_file()]
-    return sorted(files)
+    """
+    收集 lun_*.png。
+
+    注意：Windows 上 glob 不分大小写，`lun_*.png` 已经能匹配 `LUN_*.png`；
+    如果两种模式都 glob 一遍，同一张图会被写进 zip 两次（体积翻倍 + 重名告警），
+    所以这里按“文件名小写”去重。
+    """
+    found: dict[str, Path] = {}
+    for pattern in ("lun_*.png", "LUN_*.png"):
+        for path in sprite_dir.glob(pattern):
+            if path.is_file():
+                found.setdefault(path.name.lower(), path)
+    return [found[key] for key in sorted(found)]
 
 
 def main() -> int:
