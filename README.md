@@ -71,10 +71,10 @@
 | embedding记忆模型 Key（可选） | 设置 → 记忆 | 记忆检索退化成"本地哈希向量"，仍可用但不那么懂语义 |
 | 视觉模型（可选） | 设置 → 看屏幕 | 只能根据"窗口标题"搭话，不截图、不上传画面 |
 
-### 环境准备（本项目已装好，换电脑/重装时才需要）
+### 环境准备
 
-已经为你在 `LunaPet\.venv\` 建好虚拟环境（Python 3.12 + PySide6 6.12 + chromadb 1.5.9），
-`启动露娜.bat` 会直接用它。如果哪天环境坏了或者要换机器，按下面两步重建：
+需建立虚拟环境（Python 3.12 + PySide6 6.12 + chromadb 1.5.9），
+`启动露娜.bat` 会直接用它。如当前无环境依赖，请按下面两步重建：
 
 ```bat
 :: 1) 建虚拟环境（在 LunaPet 目录里执行）
@@ -84,7 +84,7 @@ python -m venv .venv
 .venv\Scripts\python.exe -m pip install -i https://mirrors.aliyun.com/pypi/simple -r requirements.txt
 ```
 
-装完可以自检一遍（不联网、不弹窗）：
+装完可自检一遍（不联网、不弹窗）：
 
 ```bat
 .venv\Scripts\python.exe launcher.py --check      :: 一条命令查环境是否齐
@@ -303,7 +303,7 @@ Key 前后别有空格；（以deepseek为例）确认模型名是 `deepseek-cha
 `tests/test_screen_privacy.py` 守着（命中隐私词时截图函数根本不会被调用）。
 
 **Q：记忆里怎么什么都没有？**
-记忆是聊出来的，而且需要填 DeepSeek Key（提炼记忆要用模型）。也可以手动在「记忆」面板里加。
+记忆是聊出来的，而且需要填服务商 Key（提炼记忆要用模型）。也可以手动在「记忆」面板里加。
 
 **Q：语音要等好几秒才有声？**
 第一次一定会慢：GPT-SoVITS 服务本身要启动并加载模型，实测冷启动约 **25 秒**（其中 15 秒是服务启动），
