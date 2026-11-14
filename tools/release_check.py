@@ -18,6 +18,13 @@ import re
 import sys
 from pathlib import Path
 
+# Windows 控制台默认是 GBK，打印 ✓ 会 UnicodeEncodeError；强制 UTF-8 输出
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:  # noqa: BLE001 老版本 Python / 被重定向时忽略
+    pass
+
 ROOT = Path(__file__).resolve().parent.parent
 
 # 根目录下这些子目录整个跳过（不是"要检查的内容"，而是本地运行时产物）

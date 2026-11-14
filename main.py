@@ -49,7 +49,13 @@ from app.ui.quick_replies import QuickReplies
 from app.ui.tray import LunaTray
 from app.voice.call import CallSession
 from app.voice.service import VoiceService
-from app.voice.signature import signature_emotion, signature_path, signature_text
+from app.voice.signature import (
+    signature_candidates,
+    signature_emotion,
+    signature_hint,
+    signature_path,
+    signature_text,
+)
 from app.wardrobe import Wardrobe, load_wardrobe
 
 
@@ -747,11 +753,12 @@ class LunaApp(QObject):
         """
         path = signature_path(self.cfg)
         if not path.is_file():
+            # 把四个候选位置都列出来，用户一眼就知道该往哪放
+            where = "\n".join("· " + str(p) for p in signature_candidates(self.cfg)[:4])
             self.tray.showMessage(
                 "找不到音频",
-                f"「心情大好～」那段录音不在：{path}\n"
-                "可以把 assets/voice 里那个 wav 放回去，或在 tools 里跑一次转码脚本。",
-                QSystemTrayIcon.Warning, 6000,
+                signature_hint() + "\n\n找过这些地方：\n" + where,
+                QSystemTrayIcon.Warning, 9000,
             )
             return
 
@@ -759,7 +766,11 @@ class LunaApp(QObject):
         try:
             duration = float(self.voice.player.play(path, volume=volume))
         except Exception as exc:  # noqa: BLE001 播放失败不该把程序带崩
-            self.tray.showMessage("放不出来", f"{exc}", QSystemTrayIcon.Warning, 5000)
+            self.tray.showMessage(
+                "放不出来",
+                f"{exc}\n\n这段只影响这个按钮，聊天和立绘都正常。",
+                QSystemTrayIcon.Warning, 6000,
+            )
             return
 
         text = signature_text(self.cfg)

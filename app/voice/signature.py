@@ -23,16 +23,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .. import paths
 from ..config import ASSETS_DIR
+
+# 素材文件名（wav 用来播放，ogg 只是留档）
+SIGNATURE_NAME = "taihen_ni_kibun_ga_ii.wav"
+SOURCE_OGG_NAME = "taihen_ni_kibun_ga_ii.ogg"
 
 # 素材目录：assets/voice/
 SIGNATURE_DIR = ASSETS_DIR / "voice"
 
 # 播放用的 wav（16-bit PCM，单声道 44.1 kHz）
-DEFAULT_WAV = SIGNATURE_DIR / "taihen_ni_kibun_ga_ii.wav"
+DEFAULT_WAV = SIGNATURE_DIR / SIGNATURE_NAME
 
 # 原始 ogg（留档用，方便以后换设备重新转码）
-SOURCE_OGG = SIGNATURE_DIR / "taihen_ni_kibun_ga_ii.ogg"
+SOURCE_OGG = SIGNATURE_DIR / SOURCE_OGG_NAME
 
 # 气泡里显示的中文（音频本身是日语）
 DEFAULT_TEXT = "心情大好～"
@@ -42,18 +47,67 @@ DEFAULT_TEXT = "心情大好～"
 DEFAULT_EMOTION = "得意"
 
 
+def signature_candidates(cfg=None) -> list[Path]:
+    """
+    这段彩蛋语音"可能在哪"——按优先级排一遍。
+
+    为什么要这么多个位置：源码运行时它在 `assets/voice/`；打包成 exe 以后，
+    打包资源在 `_internal\\assets`（只读），而素材包是让用户解压到 exe 同级的
+    `LunaPet\\assets\\voice\\`，还有人事先扔进 `data\\voice\\`——三个都得认。
+    """
+    out: list[Path] = []
+
+    if cfg is not None:
+        custom = str(cfg.get("voice.signature_file", "") or "").strip()
+        if custom:
+            p = Path(custom).expanduser()
+            # 相对路径按"程序所在目录"算，免得用户被 cwd 坑
+            if not p.is_absolute():
+                p = paths.ROOT / p
+            out.append(p)
+
+    for base in (paths.ASSETS_DIR, paths.assets_overlay(), paths.DATA_DIR, paths.BUNDLE / "assets"):
+        out.append(base / "voice" / SIGNATURE_NAME)
+
+    # 去重但保留顺序
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for p in out:
+        key = str(p).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(p)
+    return unique
+
+
 def signature_path(cfg=None) -> Path:
     """
     取这段语音的 wav 路径。
 
-    配置 `voice.signature_file` 非空就用它（方便用户换成自己的录音），
-    否则用项目内置的 assets/voice/taihen_ni_kibun_ga_ii.wav。
+    - 配了 `voice.signature_file`：就用它（哪怕文件不在——用户明写了就该按他说的来，
+      找不到时由调用方提示，而不是偷偷放另一段）
+    - 没配：按 `signature_candidates()` 顺序找第一个真实存在的；
+      都找不到返回第一个候选，供错误提示显示"本来该在哪"。
     """
-    if cfg is not None:
-        custom = str(cfg.get("voice.signature_file", "") or "").strip()
-        if custom:
-            return Path(custom).expanduser()
-    return DEFAULT_WAV
+    candidates = signature_candidates(cfg)
+    if cfg is not None and str(cfg.get("voice.signature_file", "") or "").strip():
+        return candidates[0]
+    for p in candidates:
+        if p.is_file():
+            return p
+    return candidates[0]
+
+
+def signature_hint() -> str:
+    """找不到音频时给用户看的说明（中文、可操作、别只说"失败了"）。"""
+    return (
+        "这段彩蛋语音不在本机。两种办法：\n"
+        "1) 去 Release 下载素材包（luna-assets-*.zip），解压到 LunaPet 文件夹里，"
+        "让 assets\\voice\\taihen_ni_kibun_ga_ii.wav 出现；\n"
+        "2) 或者随便找个 wav，在 设置 → 其它 →「彩蛋音频」里选上。\n"
+        "（这段只影响这个按钮，聊天、语音朗读、立绘都不受影响。）"
+    )
 
 
 def signature_text(cfg=None) -> str:

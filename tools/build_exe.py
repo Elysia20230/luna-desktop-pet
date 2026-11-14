@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 APP_DIR = DIST / "LunaPet"
 EXE = APP_DIR / "LunaPet.exe"
-VERSION = "1.0.1"       # 发布新版本时改这里（或用 --version 覆盖）
+VERSION = "1.0.2"       # 发布新版本时改这里（或用 --version 覆盖）
 ZIP_NAME = f"luna-desktop-pet-v{VERSION}-win64.zip"
 
 

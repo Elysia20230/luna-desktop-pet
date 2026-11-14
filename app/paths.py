@@ -86,12 +86,30 @@ LOGS_DIR = HOME / "logs"
 
 
 def assets_dir() -> Path:
-    """assets 目录：打包后在 _MEIPASS 里，源码运行时在项目根；写过的自定义优先 HOME。"""
-    for base in (HOME, BUNDLE):
+    """
+    assets 目录：打包后**必须**用 _MEIPASS 里那份，源码运行时用项目根。
+
+    为什么打包时要优先 BUNDLE：用户把素材包解压到 exe 同级的 `LunaPet\\assets\\`
+    时，如果这里仍"HOME 优先"，那块目录里只有 voice/ 之类零散文件，
+    就会把打包进去的 expressions.json / wardrobe.json / roles.json 顶掉，
+    表现为表情不换、换装失效——这个坑 v1.0.1 之前一直潜伏着。
+    """
+    order = (BUNDLE, HOME) if _frozen() else (HOME, BUNDLE)
+    for base in order:
         candidate = base / "assets"
         if candidate.is_dir():
             return candidate
     return BUNDLE / "assets"
+
+
+def assets_overlay() -> Path:
+    """
+    用户自己的 assets 目录（exe 同级 / 项目根下的 assets）。
+
+    打包后它和 ASSETS_DIR 可能不是同一个地方：打包资源只读、用户文件可写。
+    找彩蛋音频这类"用户自己放进去"的东西时，两个都要看。
+    """
+    return HOME / "assets"
 
 
 ASSETS_DIR = assets_dir()

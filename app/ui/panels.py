@@ -22,6 +22,8 @@ from ..mood import EMOTIONS
 from .. import providers
 from ..sprites import FAMILY_NAMES, SpriteLibrary
 from ..voice import mics
+from ..voice import probe as voice_probe
+from ..voice.signature import signature_path
 from ..voice.voices import save_emotion_overrides
 from .section import CollapsibleSection
 
@@ -536,6 +538,28 @@ class SettingsDialog(QDialog):
         form.addRow(btn_signature)
         form.addRow(hint_signature)
 
+        # 彩蛋音频：素材包解压后会自动找到；也可以在这里指定自己的 wav
+        row_sig = QHBoxLayout()
+        self.ed_signature_file = QLineEdit(str(self.cfg.get("voice.signature_file", "") or ""))
+        self.ed_signature_file.setPlaceholderText("留空 = 自动找 assets\\voice\\taihen_ni_kibun_ga_ii.wav")
+        btn_sig_pick = QPushButton("选择…")
+        btn_sig_pick.clicked.connect(
+            lambda: self._pick_into(self.ed_signature_file, "选择「心情大好～」的 wav", "音频 (*.wav)")
+        )
+        row_sig.addWidget(self.ed_signature_file, 1)
+        row_sig.addWidget(btn_sig_pick)
+        holder_sig = QWidget()
+        holder_sig.setLayout(row_sig)
+        form.addRow("彩蛋音频", holder_sig)
+
+        self.lbl_signature_state = QLabel("")
+        self.lbl_signature_state.setObjectName("hint")
+        self.lbl_signature_state.setWordWrap(True)
+        form.addRow(self.lbl_signature_state)
+        # 改了路径就立刻重新判断（这个 stat 很便宜，不用去抖）
+        self.ed_signature_file.textChanged.connect(lambda _t: self._refresh_signature_state())
+        self._refresh_signature_state()
+
         self.ck_debug = QCheckBox("保存调试文件（截图、原始回复）")
         self.ck_debug.setChecked(bool(self.cfg.get("behavior.debug_save", False)))
         form.addRow(self.ck_debug)
@@ -597,26 +621,56 @@ class SettingsDialog(QDialog):
 
         row_root = QHBoxLayout()
         self.ed_voice_root = QLineEdit(str(self.cfg.get("voice.root", "") or ""))
-        self.ed_voice_root.setPlaceholderText("GPT-SoVITS 解压后的文件夹")
+        self.ed_voice_root.setPlaceholderText(
+            r"例如 D:\GPT-SoVITS-v2pro（这一层里能看到 api_v2.py 和 runtime 文件夹）"
+        )
         btn_root = QPushButton("选择…")
-        btn_root.clicked.connect(lambda: self._pick_into(self.ed_voice_root, "选择 GPT-SoVITS 文件夹"))
+        btn_root.clicked.connect(lambda: self._pick_into(self.ed_voice_root, "选择 GPT-SoVITS 根目录"))
+        btn_find = QPushButton("自动查找")
+        btn_find.setToolTip("在 下载 / 桌面 / 用户目录 里浅扫一遍，找含 api_v2.py 的文件夹")
+        btn_find.clicked.connect(self._auto_find_voice_root)
         row_root.addWidget(self.ed_voice_root, 1)
         row_root.addWidget(btn_root)
+        row_root.addWidget(btn_find)
         holder_root = QWidget()
         holder_root.setLayout(row_root)
-        svc.addRow("GPT-SoVITS 目录", holder_root)
+        svc.addRow("GPT-SoVITS 根目录", holder_root)
+
+        # 实时说明这一层对不对（用户最容易选深一层，这里直接点出来）
+        self.lbl_voice_root_state = QLabel("")
+        self.lbl_voice_root_state.setObjectName("hint")
+        self.lbl_voice_root_state.setWordWrap(True)
+        svc.addRow(self.lbl_voice_root_state)
+        self._voice_root_timer = QTimer(self)
+        self._voice_root_timer.setSingleShot(True)
+        self._voice_root_timer.setInterval(300)      # 去抖：别每敲一个字就 stat 一次
+        self._voice_root_timer.timeout.connect(self._refresh_voice_root_state)
+        self.ed_voice_root.textChanged.connect(lambda _t: self._voice_root_timer.start())
+        self._refresh_voice_root_state()
 
         self.ed_voice_python = QLineEdit(str(self.cfg.get("voice.python", "") or ""))
-        self.ed_voice_python.setPlaceholderText("留空 = 用目录里的 runtime\\python.exe")
+        self.ed_voice_python.setPlaceholderText(r"留空 = 用根目录里的 runtime\python.exe")
         svc.addRow("Python（可选）", self.ed_voice_python)
 
         self.ed_gpt = QLineEdit(str(self.cfg.get("voice.gpt_weights", "") or ""))
-        self.ed_gpt.setPlaceholderText("GPT_weights_v2Pro\\….ckpt")
+        self.ed_gpt.setPlaceholderText(
+            r"相对根目录，如 GPT_weights_v2Pro\xxx.ckpt；留空 = 用 api_v2.py 里的默认"
+        )
         svc.addRow("GPT 权重", self.ed_gpt)
 
         self.ed_sovits = QLineEdit(str(self.cfg.get("voice.sovits_weights", "") or ""))
-        self.ed_sovits.setPlaceholderText("SoVITS_weights_v2Pro\\….pth")
+        self.ed_sovits.setPlaceholderText(
+            r"相对根目录，如 SoVITS_weights_v2Pro\xxx.pth；留空 = 用默认"
+        )
         svc.addRow("SoVITS 权重", self.ed_sovits)
+
+        hint_weights = QLabel(
+            "权重文件由模型作者提供，本项目不附带；两者的路径都相对上面的根目录写，"
+            "写错只会影响「用日语念出来」，不影响聊天。"
+        )
+        hint_weights.setObjectName("hint")
+        hint_weights.setWordWrap(True)
+        svc.addRow(hint_weights)
 
         row_map = QHBoxLayout()
         self.ed_voice_map = QLineEdit(str(self.cfg.get("voice.voice_map_file", "") or ""))
@@ -772,6 +826,56 @@ class SettingsDialog(QDialog):
         label = getattr(self, "lbl_voice_status", None)
         if label is not None:
             label.setText(text or "")
+
+    # ---- GPT-SoVITS 根目录：实时体检 + 自动查找 ---------------------------
+    def _refresh_voice_root_state(self) -> None:
+        """把「这一层到底对不对」写在输入框下面（用户最容易选深一层）。"""
+        label = getattr(self, "lbl_voice_root_state", None)
+        if label is None:
+            return
+        _code, text = voice_probe.voice_root_state(self.ed_voice_root.text())
+        label.setText(text)
+        # 红的显眼一点：路径不存在/选错层时直接标红
+        label.setStyleSheet("" if text.startswith("√") else "color:#ffb0b0;")
+
+    def _auto_find_voice_root(self) -> None:
+        """
+        在 下载 / 桌面 / 用户目录 里浅扫一遍，找含 api_v2.py 的文件夹。
+
+        扫得很浅（两层），几十毫秒；找到就填第一个，并告诉用户找到几个。
+        """
+        found = voice_probe.find_voice_roots()
+        if not found:
+            QMessageBox.information(
+                self, "没找到 GPT-SoVITS",
+                "常见位置里没找到含 api_v2.py 的文件夹。\n\n"
+                "如果你还没下载：到 github.com/RVC-Boss/GPT-SoVITS 的 Releases 下整合包，"
+                "解压后点「选择…」指到那层。\n"
+                "（这一步只影响「用日语念出来」，不做也能正常聊天。）",
+            )
+            return
+        self.ed_voice_root.setText(str(found[0]))
+        self._refresh_voice_root_state()
+        extra = "" if len(found) == 1 else f"（共找到 {len(found)} 个，已填第一个）"
+        QMessageBox.information(self, "找到啦", f"已填入：\n{found[0]}\n{extra}")
+
+    def _refresh_signature_state(self) -> None:
+        """彩蛋音频在不在——素材包解压后这里会自动变成 √。"""
+        label = getattr(self, "lbl_signature_state", None)
+        if label is None:
+            return
+        # 输入框里刚敲的路径优先（还没点保存也要能看对不对）
+        typed = self.ed_signature_file.text().strip() if hasattr(self, "ed_signature_file") else ""
+        path = Path(typed).expanduser() if typed else signature_path(self.cfg)
+        if path.is_file():
+            label.setText(f"√ 已找到：{path}")
+            label.setStyleSheet("")
+        else:
+            label.setText(
+                "× 还没找到这段录音。下载素材包（luna-assets-*.zip）解压到 LunaPet 文件夹，"
+                "或用上面的「选择…」指一个 wav。"
+            )
+            label.setStyleSheet("color:#ffb0b0;")
 
     # ---- 测试麦克风 -------------------------------------------------------
     def _test_mic(self) -> None:
@@ -942,10 +1046,21 @@ class SettingsDialog(QDialog):
         form.addRow(hint)
 
     @staticmethod
-    def _pick_into(edit: QLineEdit, title: str) -> None:
-        """选文件/文件夹后填进输入框（立绘目录与语音页共用这个思路）。"""
+    def _pick_into(edit: QLineEdit, title: str, name_filter: str = "") -> None:
+        """
+        选文件/文件夹后填进输入框。
+
+        name_filter 非空时表示"就要选文件"（例如彩蛋音频的 *.wav），
+        此时先弹文件框、取消后再让用户选文件夹（兼容"选到某个目录"的用法）。
+        """
         current = edit.text().strip()
-        if current and Path(current).is_dir():
+        if name_filter:
+            path, _ = QFileDialog.getOpenFileName(None, title, current, name_filter)
+            if path:
+                edit.setText(path)
+                return
+            path = QFileDialog.getExistingDirectory(None, title, current)
+        elif current and Path(current).is_dir():
             path = QFileDialog.getExistingDirectory(None, title, current)
         else:
             path, _ = QFileDialog.getOpenFileName(None, title, current)
@@ -1038,6 +1153,8 @@ class SettingsDialog(QDialog):
             cfg.set("voice.max_chars", self.sp_voice_chars.value())
             cfg.set("voice.speak_proactive", self.ck_voice_proactive.isChecked())
             cfg.set("voice.translate_model", self.ed_translate_model.text().strip())
+            # 彩蛋音频（留空 = 自动按 assets\voice → data\voice 的顺序找）
+            cfg.set("voice.signature_file", self.ed_signature_file.text().strip())
 
             # 实时语音通话 + 识别后端
             cfg.set("voice.call_enabled", self.ck_call.isChecked())
@@ -1067,6 +1184,9 @@ class SettingsDialog(QDialog):
                                         "其它设置已经保存，可以稍后重试。")
 
         cfg.save()
+        # 保存后按新配置再体检一次，用户能立刻看到 √ / ×
+        self._refresh_voice_root_state()
+        self._refresh_signature_state()
         self.saved.emit()
         self.accept()
 
