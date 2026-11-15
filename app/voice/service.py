@@ -34,7 +34,9 @@ from .server import TTSServer
 from .synthesize import (
     SOFT_MARKS, STRONG_MARKS, clip_for_speech, synthesize,
 )
-from .translate import TranslationCache, translate_to_japanese
+from .translate import (
+    TranslationCache, has_speech_content, speech_text, translate_to_japanese,
+)
 from .voices import VoiceMap, load_voice_map
 
 # speak_scope 的三个取值（设置界面里就是这三项）
@@ -68,7 +70,8 @@ class VoiceService(QObject):
         self._cond = threading.Condition(threading.Lock())
         self._gen = 0                 # 当前这一句的代号
         self._buf = ""                # 还没交给翻译线程的中文
-        self._seen_len = 0            # 已经"看到"过的累计文本长度（流式喂入用）
+        self._text = ""               # 最近一次喂入的累计文本（流式）
+        self._consumed = 0            # 这份累计文本里已经切出去多少字
         self._ended = False           # 这句文字已经说完（后面没有新字了）
         self._first_done = False      # 是否已经切出过第一段（决定用哪个字数上限）
         self._emotion = ""            # 这句的情绪（决定音色）
@@ -132,7 +135,8 @@ class VoiceService(QObject):
             self._gen += 1
             gen = self._gen
             self._buf = ""
-            self._seen_len = 0
+            self._text = ""
+            self._consumed = 0
             self._ended = False
             self._first_done = False
             self._emotion = ""
@@ -153,16 +157,23 @@ class VoiceService(QObject):
 
     def feed(self, text: str, emotion: str = "") -> None:
         """
-        流式喂入（引擎每来一段增量就调一次；传累计文本，不会重复处理）。
+        流式喂入（引擎每来一段增量就调一次；传的是累计文本，不会重复处理）。
+
+        为什么按"累计文本 + 已消费游标"算，而不是记住上次的长度：
+        引擎在流式过程中可能把尾巴**收回去**（情绪标记还没闭合时 `_clean_partial`
+        会先藏起来，等闭合再放出来），文本长度会短暂变短。旧实现只认"变长"，
+        于是既会把标记碎片永久留在缓冲里（引出"末尾多一句"的 bug），
+        又会在文本变短后按旧长度取增量、把后面几个字整段吞掉（漏念）。
         """
         text = text or ""
         with self._cond:
             if emotion:
                 self._emotion = emotion
-            if len(text) > self._seen_len:
-                self._buf += text[self._seen_len:]
-                self._seen_len = len(text)
-                self._cond.notify_all()
+            self._text = text
+            # 已消费的位置可能超出现文本长度（尾巴被收回去了）：那就没有新的字，
+            # 等文本重新长过游标时再接着切，既不会重复念也不会丢字。
+            self._buf = text[self._consumed:] if len(text) > self._consumed else ""
+            self._cond.notify_all()
 
     def end_reply(self, emotion: str = "") -> None:
         """这句文字结束了：让工作线程把尾巴也处理掉。"""
@@ -178,6 +189,8 @@ class VoiceService(QObject):
             self._gen += 1
             self._stop_now = True
             self._buf = ""
+            self._text = ""
+            self._consumed = 0
             self._items = []
             self._cond.notify_all()
         self._timer.stop()
@@ -248,7 +261,10 @@ class VoiceService(QObject):
                 chunk = self._take_chunk(gen)
                 if chunk is None:
                     return
-                if not chunk.strip():
+                # 情绪标记的残片（"<m"、"【情绪："）和纯标点段落绝不能送去翻译：
+                # 模型对没有语义的输入会自己编一整句日语，念出来就是"凭空多一句话"。
+                chunk = speech_text(chunk)
+                if not chunk or not has_speech_content(chunk):
                     continue
                 item = self._append_item(gen)
                 if item is None:
@@ -261,7 +277,9 @@ class VoiceService(QObject):
                 if not self._alive(gen):
                     return
                 if not ja:
-                    self._mark_error(gen, item, "这句没能翻成日语")
+                    # 译文为空 = 这段没有可念的内容（纯标点等），静默作废。
+                    # 不能报错刷屏：主人只是"这句话她不该开口"，不是出了故障。
+                    self._mark_skipped(gen, item)
                     continue
                 with self._cond:
                     item["ja"] = ja
@@ -292,10 +310,12 @@ class VoiceService(QObject):
                         self._cond.wait(0.15)      # 字还没到齐，等等看
                         continue
                     chunk, self._buf = self._cut(self._buf, cap)
+                    self._consumed += len(chunk)
                     self._first_done = True
                     if scope == SCOPE_FIRST:
                         # 只念第一段：剩下的直接扔掉
                         self._buf = ""
+                        self._consumed = len(self._text)
                         self._ended = True
                     return chunk
                 if self._ended:
@@ -397,6 +417,20 @@ class VoiceService(QObject):
             self._items.append(item)
             self._cond.notify_all()
             return item
+
+    def _mark_skipped(self, gen: int, item: dict) -> None:
+        """
+        这段静默作废（没有可念的内容），不提示主人。
+
+        为什么要单独记一个状态而不是直接丢掉占位项：播放队列按顺序取"已就绪或已作废"
+        的项，占位项既没 wav 也没 error 时会一直卡住收尾判断（speech_done 永远不发，
+        语音通话会一直等）。所以作废也要落一个终态。
+        """
+        with self._cond:
+            if gen != self._gen:
+                return
+            item["error"] = "skip"
+            self._cond.notify_all()
 
     def _mark_error(self, gen: int, item: dict, message: str) -> None:
         with self._cond:

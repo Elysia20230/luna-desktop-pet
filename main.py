@@ -117,6 +117,8 @@ class LunaApp(QObject):
             top_k=int(self.cfg.get("memory.top_k", 6)),
         )
         self.engine = ChatEngine(self.cfg, self.store, self.retriever, self.persona)
+        # 被换下来的旧引擎先挂在这里，等它的对话线程自己结束再释放
+        self._retired_engines: list = []
 
         # ---- 窗口 ---------------------------------------------------------
         self.pet = PetWindow(self.cfg, self.library, self.cache)
@@ -432,6 +434,18 @@ class LunaApp(QObject):
         self.pet.restore_default()
 
     # ---- 换衣服：按时间 / 季节 -------------------------------------------
+    def _prune_retired_engines(self) -> None:
+        """
+        回收已经退役的旧引擎。
+
+        判定标准是"线程对象已经没了"：ChatEngine._on_worker_done 在线程真正结束后
+        才清引用，所以这里过滤掉还挂着线程的引擎，剩下的才允许被垃圾回收。
+        """
+        try:
+            self._retired_engines = [e for e in self._retired_engines if e.has_worker()]
+        except Exception:  # noqa: BLE001 清理失败不影响主流程
+            self._retired_engines = []
+
     def _on_outfit_changed(self, outfit: str) -> None:
         """
         用户手动换了衣服（右键菜单或设置面板）。
@@ -876,7 +890,12 @@ class LunaApp(QObject):
             self.store, self.embedder, self.vector_store,
             top_k=int(self.cfg.get("memory.top_k", 6)),
         )
-        self.engine = ChatEngine(self.cfg, self.store, self.retriever, self.persona)
+        retired, self.engine = self.engine, ChatEngine(self.cfg, self.store, self.retriever, self.persona)
+        # 旧引擎不能直接丢：它的对话线程可能还在跑，直接销毁会触发
+        # qFatal("QThread: Destroyed while thread is still running") → 闪退。
+        retired.stop()
+        self._retired_engines.append(retired)
+        self._prune_retired_engines()
         # 新引擎是一张白纸：主动搭话 / 后台提示 / 普通回复都必须重新接上
         # （漏了就会"她说话了但界面没反应"，用户只会以为她超时不吭声）
         connect_engine_signals(self, self.engine)

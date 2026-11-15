@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import traceback
 from datetime import datetime
@@ -83,6 +84,38 @@ class ChatEngine(QObject):
     def stop(self) -> None:
         if self._worker is not None:
             self._worker.stop()
+
+    def _on_worker_done(self) -> None:
+        """
+        QThread 的 finished 信号（线程真正退出之后才发）。
+
+        为什么不在 _on_finished 里直接 self._worker = None：
+        finished_ok 是在工作线程里 emit 的，主线程可能在 run() 还没返回时就执行了槽，
+        此时把最后一个 Python 引用放掉 → QThread 的 C++ 对象被销毁 → Qt 直接
+        qFatal("QThread: Destroyed while thread is still running") → 进程 abort
+        （Windows 事件日志里就是 Qt6Core.dll / 0xc0000409 / BEX64）。
+        所以引用统一在这里释放，deleteLater 交给事件循环回收。
+        """
+        worker = self._worker
+        self._worker = None
+        if worker is not None:
+            worker.deleteLater()
+
+
+    def _release_fake_worker(self) -> None:
+        """
+        只为测试替身准备：它们不是 QThread，没有 finished 信号。
+
+        真正的 ChatWorker 走 _on_worker_done，绝不在这里提前释放——
+        提前释放就是 v1.0.2 线上闪退的原因。
+        """
+        worker = self._worker
+        if worker is not None and getattr(worker, "finished", None) is None:
+            self._worker = None
+
+    def has_worker(self) -> bool:
+        """还有没有活着的线程对象（main.py 用它决定老引擎能不能释放）。"""
+        return self._worker is not None
 
     def clear_history(self) -> None:
         self.history = []
@@ -231,13 +264,13 @@ class ChatEngine(QObject):
         clean, emo = mood.parse(full or self._buffer)
         clean = (clean or "").strip() or "……"
         emo = emo or mood.guess(clean)
-        self._worker = None
         self.screen_said.emit(clean, emo)
+        self._release_fake_worker()
 
     def _on_screen_failed(self, message: str) -> None:
         """看屏幕点评失败：记一条后台提示，退回内置台词，别让主人以为她哑了。"""
-        self._worker = None
         self.note.emit(f"看屏幕没说话成：{message}")
+        self._release_fake_worker()
         self._offline_screen()
 
     def _offline_screen(self) -> None:
@@ -257,6 +290,11 @@ class ChatEngine(QObject):
         主动说话没有"对话窗的气泡"要填，发了反而会在窗口里留下空泡。
         """
         try:
+            # 上一句已经跑完、但 finished 的槽还没轮到时，先把旧线程交给事件循环回收，
+            # 免得下面覆盖引用时把它顺手丢掉（丢引用就是崩溃的来源，见 _on_worker_done）
+            if self._worker is not None and not self._worker.isRunning():
+                self._worker.deleteLater()
+                self._worker = None
             self._worker = ChatWorker(
                 base_url=self.cfg.get("api.base_url", "https://api.deepseek.com"),
                 api_key=self.cfg.api_key,
@@ -268,6 +306,11 @@ class ChatEngine(QObject):
                 system_factory=make_system,
             )
             self._worker.chunk.connect(self._on_chunk if stream else self._accumulate_only)
+            # 线程结束后才允许丢掉引用（见 _on_worker_done 的注释）。
+            # 测试里用的替身不是 QThread，没有 finished 信号，那边走 _release_fake_worker。
+            finished_sig = getattr(self._worker, "finished", None)
+            if finished_sig is not None:
+                finished_sig.connect(self._on_worker_done)
             self._worker.finished_ok.connect(on_finished)
             self._worker.failed.connect(on_failed or self._on_failed)
             self._worker.start()
@@ -360,14 +403,14 @@ class ChatEngine(QObject):
 
         self.text_chunk.emit(clean)
         self.finished.emit(clean, emo)
-        self._worker = None
+        self._release_fake_worker()
 
         self._turn_count += 1
         self._maybe_extract()
 
     def _on_failed(self, message: str) -> None:
-        self._worker = None
         self.failed.emit(message)
+        self._release_fake_worker()
 
     # ---- 后台记忆提炼 -----------------------------------------------------
     def _maybe_extract(self) -> None:
@@ -482,14 +525,19 @@ class ChatEngine(QObject):
             pass
 
     # ---- 小工具 -----------------------------------------------------------
+    # 没闭合的情绪标记尾巴：从开符号到结尾（"<m"、"<mood:平"、"【情绪："、"[[mo"）。
+    # 为什么要按开符号剥，而不是等关键词出现再剥：
+    # 流式最初几帧回来的是 "<"、"<m"，关键词还没拼齐，旧实现（只认完整的
+    # mood/情绪）会把它们当正文发出去，语音那边就会把这段标记碎片送去翻译，
+    # 模型凭空编一句日语并被缓存 → 每句回复末尾都多同一句话。
+    _PARTIAL_TAG = re.compile(r"(?:<{1,2}[^<>]*|【[^】]*|\[\[[^\]]*|（[^）]*|\([^)]*)$")
+
     @staticmethod
     def _clean_partial(text: str) -> str:
         """
         流式输出时，情绪标记可能只回来一半（比如 "<mood:害"），
         这里把没闭合的尾巴先藏起来，等下一个字到了再显示。
         """
-        import re
-
         cleaned = mood.parse(text)[0]
-        cleaned = re.sub(r"[<【\[（(]\s*(mood|情绪)[^>】\])）]*$", "", cleaned, flags=re.I)
+        cleaned = ChatEngine._PARTIAL_TAG.sub("", cleaned)
         return cleaned

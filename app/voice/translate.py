@@ -24,6 +24,43 @@ from ..config import DATA_DIR
 CACHE_FILE = DATA_DIR / "voice" / "translate.json"
 CACHE_LIMIT = 500          # 最多记多少条翻译（超了丢最旧的）
 
+# 缓存键的版本前缀。
+# 为什么要版本号：v1.0.2 及更早的版本会把情绪标记的碎片（"<m"、"。"）当成台词送去翻译，
+# 模型凭空编出的日语被永久写进缓存，之后每句回复末尾都会命中同一句
+# （典型症状：末尾多一句「…朝日、何ぼーっとしてるの？」，气泡里却没有）。
+# 换前缀就等于一次性作废这些污染条目，不用删用户的缓存文件。
+CACHE_VERSION = "v2"
+
+# 有实义的字符：字母 / 数字 / 假名 / 汉字。只有标点或空格的一段不值得我们花钱去翻译
+# （模型对"。"这种输入会自己编一整句，见上）。
+_SPEECH_RE = re.compile(r"[0-9A-Za-z\u3040-\u30ff\u4e00-\u9fff]")
+# 日语口语一定带假名；纯汉字的结果基本是模型把中文解释当译文回给我们了
+# （"这是中文解释"和"何？"都会命中汉字，所以这里只认假名）。
+_JAPANESE_RE = re.compile(r"[\u3040-\u30ff]")
+
+# 情绪标记与它的半截残片。完整标记 mood.parse 会剥掉，但流式/切段有时只留下
+# "<m"、"【情绪：" 这种碎片，它们绝不能进翻译。
+_TAG_PATTERNS = (
+    re.compile(r"<[^<>]*>?"),                        # <mood:平静> / "<m" / "<"
+    re.compile(r"【[^】]*】?"),                        # 【情绪：平静】 / "【情绪："
+    re.compile(r"\[{1,2}[^\[\]]*\]{0,2}"),            # [[mood:平静]] / "[[mo"
+    re.compile(r"[（(]\s*(?:mood|情绪|心情|表情)[^）)]*(?:[）)]|$)", re.I),
+)
+
+
+def speech_text(text: str) -> str:
+    """去掉情绪标记和它的半截残片，只留真正要念的文字。"""
+    out = text or ""
+    for pattern in _TAG_PATTERNS:
+        out = pattern.sub("", out)
+    return out.strip()
+
+
+def has_speech_content(text: str) -> bool:
+    """这一段有没有值得念的实义字符（纯标点/纯标记/空白都不值得）。"""
+    return bool(_SPEECH_RE.search(speech_text(text)))
+
+
 # 提示词：只要一行日语，保留傲娇/强势，不要大小姐腔
 TRANSLATE_SYSTEM = (
     "你是动画《近月少女的礼仪》里樱小路露娜的台词改写者。\n"
@@ -73,7 +110,9 @@ class TranslationCache:
 
 
 def _key(text: str) -> str:
-    return hashlib.sha1((text or "").strip().encode("utf-8")).hexdigest()
+    # 带版本前缀：旧版本写进去的污染条目（"<m" → 凭空编的日语）从此不再命中
+    stripped = (text or "").strip()
+    return hashlib.sha1((CACHE_VERSION + "\n" + stripped).encode("utf-8")).hexdigest()
 
 
 def build_messages(text_zh: str) -> list[dict]:
@@ -110,8 +149,10 @@ def translate_to_japanese(text_zh: str, cfg, cache: TranslationCache | None = No
     把一句中文翻成日语。缓存命中直接返回。
     失败会抛异常（API Key 没填、网络错等），由 VoiceService 统一兜底。
     """
-    text_zh = (text_zh or "").strip()
-    if not text_zh:
+    text_zh = speech_text(text_zh)
+    if not text_zh or not has_speech_content(text_zh):
+        # 纯标点、纯情绪标记残片：不送翻译、不写缓存。
+        # 送进去的后果就是模型凭空编一句日语，被缓存后每句末尾都重复（老版本的 bug）。
         return ""
     cache = cache or TranslationCache()
     hit = cache.get(text_zh)
@@ -134,6 +175,9 @@ def translate_to_japanese(text_zh: str, cfg, cache: TranslationCache | None = No
         timeout=45.0,
     )
     japanese = clean_reply(raw)
-    if japanese:
-        cache.put(text_zh, japanese)
+    # 模型有时会回一段中文解释或空行；这种"不像日语"的结果绝不写缓存，
+    # 否则一句坏译文会被无限复用。
+    if not japanese or not _JAPANESE_RE.search(japanese):
+        return ""
+    cache.put(text_zh, japanese)
     return japanese

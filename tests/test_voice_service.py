@@ -177,3 +177,50 @@ def test_first_segment_is_short(tmp_path):
     assert _pump(svc, lambda: len(synth_calls) >= 1, timeout=5.0)
     first = synth_calls[0].replace("JA:", "")
     assert len(first) <= 12, f"第一段有 {len(first)} 字，太长了"
+
+
+def test_partial_mood_tag_never_becomes_speech(tmp_path):
+    """
+    情绪标记的碎片（"<"、"<m"）绝不能被当成台词送去翻译。
+
+    线上事故：v1.0.2 每次回复末尾都多一句日语（气泡里没有），
+    根因就是这些碎片进了翻译，模型凭空编一句并被缓存，之后每轮复用。
+    """
+    svc, synth_calls = _make_service(tmp_path)
+    svc.begin_reply()
+    for piece in ["怎么了？", "怎么了？<", "怎么了？<m", "怎么了？<mood:平",
+                  "怎么了？<mood:平静>"]:
+        svc.feed(piece, "平静")
+        time.sleep(0.02)
+    svc.end_reply("平静")
+
+    assert _pump(svc, lambda: bool(svc.player.played), timeout=5.0)
+    joined = "".join(synth_calls).replace("JA:", "")
+    assert joined == "怎么了？", f"念出来的内容被标记污染了：{synth_calls}"
+    assert all("<" not in text and "mood" not in text for text in synth_calls)
+
+
+def test_shrinking_feed_keeps_text_intact(tmp_path):
+    """
+    引擎可能把尾巴收回去（标记没闭合时先藏起来）：文本变短之后再变长，
+    既不能重复念，也不能漏字（旧实现按"上次长度"取增量，会整段吞字）。
+    """
+    svc, synth_calls = _make_service(tmp_path)
+    svc.begin_reply()
+    svc.feed("哼，<m", "生气")      # 标记碎片回来了
+    svc.feed("哼，", "生气")        # 引擎把尾巴藏回去（文本变短）
+    svc.feed("哼，怎么了？", "生气")
+    svc.end_reply("生气")
+
+    assert _pump(svc, lambda: bool(svc.player.played), timeout=5.0)
+    joined = "".join(synth_calls).replace("JA:", "")
+    assert joined == "哼，怎么了？", f"切段丢字或重复了：{synth_calls}"
+
+
+def test_punctuation_only_segment_is_not_translated(tmp_path):
+    """只有标点的段落不值得翻译（老版本会把"。"送去翻译，模型凭空编一整句）。"""
+    svc, synth_calls = _make_service(tmp_path)
+    svc.speak("……", "平静")
+    time.sleep(0.3)
+    svc._tick_play()
+    assert synth_calls == []

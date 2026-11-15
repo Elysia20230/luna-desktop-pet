@@ -235,6 +235,47 @@ def _run_check() -> int:
 
 
 # ---------------------------------------------------------------- 主流程
+def _redirect_streams_when_frozen() -> None:
+    """
+    打包成 exe 后没有控制台，stdout/stderr 全是 None 或黑洞：
+    Qt 自己打印的致命信息（例如 "QThread: Destroyed while thread is still running"）
+    就这么丢掉了，只剩 Windows 事件日志里一行 0xc0000409。
+
+    这里把三样东西落到 logs/app_stderr.log：
+        · Qt / Python 写到 stderr 的所有内容
+        · faulthandler 的崩溃栈（段错误、abort 都能抓）
+        · 两条分隔线，方便和上一次崩溃区分开
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        path = LOG_DIR / "app_stderr.log"
+        fh = path.open("a", encoding="utf-8", buffering=1)
+        fh.write(f"\n===== {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} 启动 =====\n")
+        fh.flush()
+        if sys.stdout is None:
+            sys.stdout = fh
+        if sys.stderr is None:
+            sys.stderr = fh
+        # 文件描述符层面也接上，C/C++ 侧（Qt、onnxruntime…）写 fd 2 的内容才收得到
+        try:
+            import msvcrt
+
+            os.dup2(fh.fileno(), 2)
+            os.dup2(fh.fileno(), 1)
+        except Exception:
+            pass
+        try:
+            import faulthandler
+
+            faulthandler.enable(file=fh, all_threads=True)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--console", action="store_true", help="保留控制台输出")
@@ -243,6 +284,7 @@ def main() -> int:
     parser.add_argument("--simulate-error", action="store_true", help="演练：故意抛错")
     args = parser.parse_args()
 
+    _redirect_streams_when_frozen()
     _text_stdout()
     os.chdir(ROOT)  # 统一工作目录，配置与数据都相对项目根
     sys.path.insert(0, str(ROOT))
